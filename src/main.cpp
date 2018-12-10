@@ -58,11 +58,16 @@ vec2 *draggedControlPoint = nullptr;
 
 GLFWwindow *createWindow();
 void setupInputCallbacks(GLFWwindow * const window);
+
 mat4 calculateCoefficientMatrix(const float tension, const float bias, const float continuity);
+
 void drawCurve(const mat4& coefficientMatrix, const std::vector<vec2>& controlPoints);
 void drawSegment(const size_t segmentIndex, const mat4& coefficientMatrix, const std::vector<vec2>& controlPoints);
 void drawControlPolygon(const std::vector<vec2>& controlPoints);
 void drawControlPoints(const std::vector<vec2>& controlPoints);
+
+void onMouseMove(GLFWwindow *window, double x, double y);
+void onMouseClick(GLFWwindow *window, int button, int action, int modifiers);
 vec2 *getClickedPoint(const vec2& cursorPosition, std::vector<vec2>& controlPoints);
 
 int main(int argc, char **argv) {
@@ -100,8 +105,6 @@ int main(int argc, char **argv) {
 	glLoadIdentity();
 	glOrtho(0.f, frameBufferWidth, frameBufferHeight, 0.f, 0.f, 1.f);
 	glPointSize(4.0f);
-	glEnable(GL_LINE_SMOOTH);
-	glEnable(GL_POINT_SMOOTH);
 	
 
 	glfwSwapInterval(0);
@@ -161,49 +164,9 @@ GLFWwindow *createWindow() {
 }
 
 void setupInputCallbacks(GLFWwindow * const window) {
-	glfwSetCursorPosCallback(window,
-		[](GLFWwindow *window, double x, double y) {
-			const bool isHandledByGui = screen->cursorPosCallbackEvent(x, y);
+	glfwSetCursorPosCallback(window, onMouseMove);
 
-			if (isHandledByGui) {
-				draggedControlPoint = nullptr;
-			} else if (draggedControlPoint != nullptr) {
-				double xpos, ypos;
-
-				glfwGetCursorPos(window, &xpos, &ypos);
-
-				draggedControlPoint->x = (float)xpos;
-				draggedControlPoint->y = (float)ypos;
-			}
-		}
-	);
-
-	glfwSetMouseButtonCallback(window,
-		[](GLFWwindow *window, int button, int action, int modifiers) {
-			const bool isHandledByGui = screen->mouseButtonCallbackEvent(button, action, modifiers);
-
-			if (!isHandledByGui && button == GLFW_MOUSE_BUTTON_LEFT) {
-
-				if (action == GLFW_PRESS) {
-					double xpos, ypos;
-
-					glfwGetCursorPos(window, &xpos, &ypos);
-
-					const vec2 cursorPosition = { (float)xpos, (float)ypos };
-
-					vec2 *pointUnderCursor = getClickedPoint(cursorPosition, controlPoints);
-
-					if (pointUnderCursor == nullptr) {
-						controlPoints.push_back(cursorPosition);
-					} else {
-						draggedControlPoint = pointUnderCursor;
-					}
-				} else if (action == GLFW_RELEASE) {
-					draggedControlPoint = nullptr;
-				}
-			}
-		}
-	);
+	glfwSetMouseButtonCallback(window, onMouseClick);
 
 	glfwSetKeyCallback(window,
 		[](GLFWwindow *, int key, int scancode, int action, int mods) {
@@ -234,6 +197,44 @@ void setupInputCallbacks(GLFWwindow * const window) {
 			screen->resizeCallbackEvent(width, height);
 		}
 	);
+}
+
+void onMouseMove(GLFWwindow *window, double x, double y) {
+	const bool isHandledByGui = screen->cursorPosCallbackEvent(x, y);
+
+	if (isHandledByGui) {
+		draggedControlPoint = nullptr;
+	} else if (draggedControlPoint != nullptr) {
+		draggedControlPoint->x = (float)x;
+		draggedControlPoint->y = (float)y;
+	}
+}
+
+void onMouseClick(GLFWwindow *window, int button, int action, int modifiers) {
+	const bool isHandledByGui = screen->mouseButtonCallbackEvent(button, action, modifiers);
+
+	if (!isHandledByGui && button == GLFW_MOUSE_BUTTON_LEFT) {
+
+		if (action == GLFW_PRESS) {
+			double xpos, ypos;
+
+			glfwGetCursorPos(window, &xpos, &ypos);
+
+			const vec2 cursorPosition = { (float)xpos, (float)ypos };
+
+			vec2 *pointUnderCursor = getClickedPoint(cursorPosition, controlPoints);
+
+			if (pointUnderCursor == nullptr) {
+				controlPoints.push_back(cursorPosition);
+			}
+			else {
+				draggedControlPoint = pointUnderCursor;
+			}
+		}
+		else if (action == GLFW_RELEASE) {
+			draggedControlPoint = nullptr;
+		}
+	}
 }
 
 mat4 calculateCoefficientMatrix(const float tension, const float bias, const float continuity) {
