@@ -25,6 +25,9 @@
 #include <GLFW/glfw3.h>
 #include <nanogui/nanogui.h>
 
+#include "bevgrafmath2017.h"
+
+
 const int CONTEXT_VERSION_MAJOR = 3;
 const int CONTEXT_VERSION_MINOR = 0;
 
