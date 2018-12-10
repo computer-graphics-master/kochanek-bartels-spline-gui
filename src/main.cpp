@@ -6,6 +6,7 @@
 	by Mikko Mononen.
 */
 
+#include <algorithm>
 #include <iostream>
 
 #if defined(NANOGUI_GLAD)
@@ -39,10 +40,30 @@ const char *APPLICATION_TITLE = "Kochanek-Bartels Spline";
 
 nanogui::Screen *screen = nullptr;
 
+const int MINIMUM_NUMBER_OF_CONTROL_POINTS = 4;
+const float CLICK_THRESHOLD = 100.0f;
+
+const float PARAMETER_DELTA = 0.05f;
+
+std::vector<vec2> controlPoints;
+
+float tension = 0.0f;
+float bias = 0.0f;
+float continuity = 0.0f;
+
+bool isDrawControlPolygon = true;
+bool isDrawControlPoints = true;
+
+vec2 *draggedControlPoint = nullptr;
 
 GLFWwindow *createWindow();
 void setupInputCallbacks(GLFWwindow * const window);
-
+mat4 calculateCoefficientMatrix(const float tension, const float bias, const float continuity);
+void drawCurve(const mat4& coefficientMatrix, const std::vector<vec2>& controlPoints);
+void drawSegment(const size_t segmentIndex, const mat4& coefficientMatrix, const std::vector<vec2>& controlPoints);
+void drawControlPolygon(const std::vector<vec2>& controlPoints);
+void drawControlPoints(const std::vector<vec2>& controlPoints);
+vec2 *getClickedPoint(const vec2& cursorPosition, std::vector<vec2>& controlPoints);
 
 int main(int argc, char **argv) {
 	glfwInit();
@@ -78,6 +99,10 @@ int main(int argc, char **argv) {
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
 	glOrtho(0.f, frameBufferWidth, frameBufferHeight, 0.f, 0.f, 1.f);
+	glPointSize(4.0f);
+	glEnable(GL_LINE_SMOOTH);
+	glEnable(GL_POINT_SMOOTH);
+	
 
 	glfwSwapInterval(0);
 	glfwSwapBuffers(window);
@@ -90,15 +115,22 @@ int main(int argc, char **argv) {
 	while (!glfwWindowShouldClose(window)) {
 		glfwPollEvents();
 
-		glClearColor(0.33f, 0.33f, 0.33f, 1.0f);
+		glClearColor(0.329f, 0.431f, 0.478f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 
-		glColor3f(1.0, 1.0, 1.0);
-		glBegin(GL_TRIANGLES);
-		glVertex2d(100, 100);
-		glVertex2d(200, 100);
-		glVertex2d(150, 200);
-		glEnd();
+		if (controlPoints.size() >= MINIMUM_NUMBER_OF_CONTROL_POINTS) {
+			const mat4 coefficientMatrix = calculateCoefficientMatrix(tension, bias, continuity);
+
+			drawCurve(coefficientMatrix, controlPoints);
+		}
+
+		if (isDrawControlPolygon) {
+			drawControlPolygon(controlPoints);
+		}
+
+		if (isDrawControlPoints) {
+			drawControlPoints(controlPoints);
+		}
 
 		// Draw NanoGUI.
 		screen->drawContents();
@@ -130,14 +162,46 @@ GLFWwindow *createWindow() {
 
 void setupInputCallbacks(GLFWwindow * const window) {
 	glfwSetCursorPosCallback(window,
-		[](GLFWwindow *, double x, double y) {
-			screen->cursorPosCallbackEvent(x, y);
+		[](GLFWwindow *window, double x, double y) {
+			const bool isHandledByGui = screen->cursorPosCallbackEvent(x, y);
+
+			if (isHandledByGui) {
+				draggedControlPoint = nullptr;
+			} else if (draggedControlPoint != nullptr) {
+				double xpos, ypos;
+
+				glfwGetCursorPos(window, &xpos, &ypos);
+
+				draggedControlPoint->x = (float)xpos;
+				draggedControlPoint->y = (float)ypos;
+			}
 		}
 	);
 
 	glfwSetMouseButtonCallback(window,
-		[](GLFWwindow *, int button, int action, int modifiers) {
-			screen->mouseButtonCallbackEvent(button, action, modifiers);
+		[](GLFWwindow *window, int button, int action, int modifiers) {
+			const bool isHandledByGui = screen->mouseButtonCallbackEvent(button, action, modifiers);
+
+			if (!isHandledByGui && button == GLFW_MOUSE_BUTTON_LEFT) {
+
+				if (action == GLFW_PRESS) {
+					double xpos, ypos;
+
+					glfwGetCursorPos(window, &xpos, &ypos);
+
+					const vec2 cursorPosition = { (float)xpos, (float)ypos };
+
+					vec2 *pointUnderCursor = getClickedPoint(cursorPosition, controlPoints);
+
+					if (pointUnderCursor == nullptr) {
+						controlPoints.push_back(cursorPosition);
+					} else {
+						draggedControlPoint = pointUnderCursor;
+					}
+				} else if (action == GLFW_RELEASE) {
+					draggedControlPoint = nullptr;
+				}
+			}
 		}
 	);
 
@@ -170,4 +234,82 @@ void setupInputCallbacks(GLFWwindow * const window) {
 			screen->resizeCallbackEvent(width, height);
 		}
 	);
+}
+
+mat4 calculateCoefficientMatrix(const float tension, const float bias, const float continuity) {
+	const float s = 0.5f * (1.0f - tension);
+	const float q1 = s * (1.0f + bias) * (1.0f - continuity);
+	const float q2 = s * (1.0f - bias) * (1.0f + continuity);
+	const float q3 = s * (1.0f + bias) * (1.0f + continuity);
+	const float q4 = s * (1.0f - bias) * (1.0f - continuity);
+
+	return {
+		{ -q1, 2.0f * q1, -q1, 0 },
+		{ q1 - q2 - q3 + 2.0f, q3 - (2.0f * q1) + (2.0f * q2) - 3.0f, q1 - q2, 1.0f },
+		{ q2 + q3 - q4 - 2.0f, q4 - q3 - (2.0f * q2) + 3.0f, q2, 0 },
+		{ q4, -q4, 0, 0}
+	};
+}
+
+void drawCurve(const mat4& coefficientMatrix, const std::vector<vec2>& controlPoints) {
+	const size_t segmentCount = controlPoints.size() - 3;
+
+	glLineWidth(2.5f);
+	glColor3ub(255, 171, 64);
+	glBegin(GL_LINE_STRIP);
+	for (size_t segmentIndex = 0; segmentIndex < segmentCount; ++segmentIndex) {
+		drawSegment(segmentIndex, coefficientMatrix, controlPoints);
+	}
+	glEnd();
+}
+
+void drawSegment(const size_t segmentIndex, const mat4& coefficientMatrix, const std::vector<vec2>& controlPoints) {
+	const mat24 geometry = {
+		controlPoints[segmentIndex + 0],
+		controlPoints[segmentIndex + 1],
+		controlPoints[segmentIndex + 2],
+		controlPoints[segmentIndex + 3]
+	};
+
+	const mat24 gm = geometry * coefficientMatrix;
+
+	for (float t = 0.0f; t <= 1.0f + PARAMETER_DELTA; t += PARAMETER_DELTA) {
+		const vec4 parameterVector = { t * t * t, t * t, t, 1.0f };
+
+		const vec2 curvePoint = gm * parameterVector;
+
+		glVertex2f(curvePoint.x, curvePoint.y);
+	}
+}
+
+void drawControlPolygon(const std::vector<vec2>& controlPoints) {
+	glLineWidth(1.5f);
+	glColor3ub(255, 255, 255);
+	glBegin(GL_LINE_STRIP);
+	for (const auto& point : controlPoints) {
+		glVertex2f(point.x, point.y);
+	}
+	glEnd();
+}
+
+void drawControlPoints(const std::vector<vec2>& controlPoints) {
+	glColor3ub(255, 255, 255);
+	glBegin(GL_POINTS);
+	for (const auto& point : controlPoints) {
+		glVertex2f(point.x, point.y);
+	}
+	glEnd();
+}
+
+vec2 *getClickedPoint(const vec2& cursorPosition, std::vector<vec2>& controlPoints)
+{
+	const auto clickedIterator = std::find_if(controlPoints.begin(), controlPoints.end(), [&cursorPosition](const vec2& point) {
+		return dist2(cursorPosition, point) <= CLICK_THRESHOLD;
+	});
+
+	if (clickedIterator == controlPoints.end()) {
+		return nullptr;
+	} else {
+		return &(*clickedIterator);
+	}
 }
