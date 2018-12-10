@@ -110,6 +110,50 @@ int main(int argc, char **argv) {
 	glfwSwapInterval(0);
 	glfwSwapBuffers(window);
 
+	nanogui::Window *controlWindow = new nanogui::Window(screen, "Controls");
+	controlWindow->setPosition(nanogui::Vector2i(15, 15));
+	controlWindow->setLayout(new nanogui::GroupLayout());
+
+	nanogui::Widget *panel = new nanogui::Widget(controlWindow);
+	panel->setLayout(new nanogui::BoxLayout(
+		nanogui::Orientation::Horizontal,
+		nanogui::Alignment::Middle,
+		0,
+		20
+	));
+
+	nanogui::Label *tensionLabel = new nanogui::Label(panel, "Tension");
+
+	nanogui::Slider *tensionSlider = new nanogui::Slider(panel);
+	tensionSlider->setRange({ -5.0f, 5.0f });
+	tensionSlider->setValue(0.0f);
+	tensionSlider->setFixedWidth(100);
+
+	nanogui::Label *tensionValueLabel =
+		new nanogui::Label(panel, "0.0");
+	tensionValueLabel->setFixedWidth(100);
+
+	tensionSlider->setCallback([tensionValueLabel](float value) {
+		tensionValueLabel->setCaption(std::to_string(value));
+		tension = value;
+	});
+
+
+	nanogui::Widget *checkboxPanel = new nanogui::Widget(controlWindow);
+	checkboxPanel->setLayout(new nanogui::BoxLayout(
+		nanogui::Orientation::Horizontal,
+		nanogui::Alignment::Middle,
+		0,
+		20
+	));
+
+	nanogui::CheckBox *controlPolygonCheckBox =
+		new nanogui::CheckBox(checkboxPanel, "Show control polygon");
+	controlPolygonCheckBox->setChecked(true);
+	controlPolygonCheckBox->setCallback([](bool value) {
+		isDrawControlPolygon = value;
+	});
+
 	screen->setVisible(true);
 	screen->performLayout();
 
